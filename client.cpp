@@ -21,7 +21,7 @@ using namespace std;
 int Scontrol;
 int Sdata;
 
-int _debug_mode = 1;
+int _debug_mode = 0;
 
 struct addrinfo *res0;
 struct addrinfo *res1;

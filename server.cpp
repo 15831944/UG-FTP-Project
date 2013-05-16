@@ -1,11 +1,5 @@
 /* 
- * reply:
- * statusCode LENGTH DATA
  * 
- * status code:
- * 200 OK
- * 413 Request Entity Too Large
- * 404 File Not Found
 */
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -25,7 +19,7 @@
 using namespace std;
 
 map<string, string> accounts;
-int  _debug_mode = 1;
+int  _debug_mode = 0;
 #define PORT "2222"
 #define SENDBUF_SIZE 1024
 #define MAXSOCK		20
