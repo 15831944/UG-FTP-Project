@@ -329,7 +329,7 @@ void ftpLoop(){
 
 int main ( int argc, char *argv[])
 {
-	initConnection("127.0.0.1", "21");
+	initConnection("localhost", "2222");
 	cq = new CommandQueue(_debug_mode, Scontrol);
 	ftpLoop();
 	closeConnection();
