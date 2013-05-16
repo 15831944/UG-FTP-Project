@@ -20,7 +20,6 @@ using namespace std;
 
 map<string, string> accounts;
 int  _debug_mode = 0;
-#define PORT "2222"
 #define SENDBUF_SIZE 1024
 #define MAXSOCK		20
 #define MAX_LINE	1024
@@ -31,9 +30,25 @@ string baseAddr;
 void replyClient(int socket);
 
 int main( int argc, char **argv) {
-	accounts[string("xxr3376")] = string("ug920801");
-	if (argc > 1){
-		baseAddr.assign(argv[1]);
+	if (argc < 4){
+		printf("usage: server port accountFile homedir [-d]");
+		exit(-1);
+	}
+	if (argc == 5 && argv[4][0] == '-' && argv[4][1] == 'd'){
+		_debug_mode = 1;
+	}
+	baseAddr.assign(argv[3]);
+	FILE* accFile = fopen(argv[2], "r");
+	if (!accFile){
+		printf("can not open account file");
+		exit(-1);
+	}
+	char line[1000];
+	char username[100], password[100];
+	while ( fgets(line, 1000, accFile) != NULL){
+		accounts[string("xxr3376")] = string("ug920801");
+		sscanf("%s %s\n", username, password);
+		accounts[string(username)] = string(password);
 	}
 	struct addrinfo hints, *res, *res0;
 	int error;
@@ -56,10 +71,10 @@ int main( int argc, char **argv) {
 	memset (&hints, 0, sizeof (hints));
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
-	error = getaddrinfo (NULL, PORT, &hints, &res0);
+	error = getaddrinfo (NULL, argv[1], &hints, &res0);
 	if (error)
 	{
-		fprintf (stderr, "%s: %s\n", PORT, gai_strerror (error));
+		fprintf (stderr, "%s: %s\n", argv[1], gai_strerror (error));
 		exit (1);
 	}
 	smax = 0;
@@ -149,8 +164,10 @@ int main( int argc, char **argv) {
 				pid_t pid = fork();
 				if (pid != 0){
 					// son
+					printf("Thread %d is sereving\n", pid);
 					replyClient(s);
 					close(s);
+					printf("Thread %d finish\n", pid);
 					exit(0);
 				}
 			}
@@ -220,6 +237,43 @@ int connectPASV(Client* client){
 	return 0;
 }
 
+int connectPORT(Client* client, string data){
+	int &datafd = client->dataSocket;
+	if (datafd != -1) {
+		close(datafd);
+	}
+	char host[100];
+	char port[100];
+	int h1, h2, h3, h4, p1, p2;
+	sscanf(data.c_str(), "%d,%d,%d,%d,%d,%d", &h1, &h2, &h3, &h4, &p1, &p2);
+	sprintf(host, "%d.%d.%d.%d", h1, h2, h3, h4);
+	sprintf(port, "%d", p1 * 256 + p2);
+	struct addrinfo hints, *res;
+	ssize_t l;
+	int error;
+/* check the number of arguments */
+	memset (&hints, 0, sizeof (hints));
+	hints.ai_socktype = SOCK_STREAM;
+	error = getaddrinfo (host, port, &hints, &res);
+	if (error) {
+		fprintf (stderr, "%s %s: %s\n", host, port, gai_strerror (error));
+		exit (1);
+	}
+
+	datafd = socket (res->ai_family, res->ai_socktype,
+			res->ai_protocol);
+	if (datafd < 0)
+		return -1;
+	if (connect (datafd , res->ai_addr, res->ai_addrlen) < 0)
+	{
+		close (datafd);
+		return -1;
+	}
+	int sendLength = sprintf(client->sendBuf, "200 PORT command successful. Consider using PASV.");
+	_send(client->ctrlSocket, client->sendBuf, sendLength);
+	return 0;
+}
+
 int openDataPort(Client* client){
 	if (!(client->dataSocket > 0)){
 		return -1;
@@ -234,6 +288,7 @@ int openDataPort(Client* client){
 }	
 
 void replyClient(int socket){
+	chdir(baseAddr.c_str());
 	RequestQueue* rq = new RequestQueue(_debug_mode, socket);
 	char sendBuf[SENDBUF_SIZE + 1];
 	Client client(socket, sendBuf, rq);
@@ -248,6 +303,7 @@ void replyClient(int socket){
 		if (req.req == "QUIT"){
 			sendLength = sprintf(sendBuf, "221 Goodbye.\r\n");
 			_send(socket, sendBuf, sendLength);
+			printf("user: %s log out", client.username.c_str());
 			break;
 		}
 		else if (req.req == "USER"){
@@ -274,6 +330,7 @@ void replyClient(int socket){
 						client.loginStatus = LOGIN_LOGINED;
 						sendLength = sprintf(sendBuf, "%d Login successful.\r\n", StdReply::LOGIN_SUCCESS);
 						_send(socket, sendBuf, sendLength);
+						printf("user: %s log in", client.username.c_str());
 						continue;
 					}
 				}
@@ -344,7 +401,7 @@ void replyClient(int socket){
 				continue;
 			}
 			else if (req.req == "PORT"){
-
+				connectPORT(&client, req.data);
 				continue;
 			}
 			else if (req.req == "STOR"){

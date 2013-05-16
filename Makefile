@@ -8,6 +8,8 @@ server: server.cpp replyCode.h requestqueue.o util.h
 commandqueue.o: commandqueue.h commandqueue.cpp
 requestqueue.o: requestqueue.h requestqueue.cpp
 
+runserver:
+	./server 2222 accounts.txt . 
 clean:
 	rm *.o
 	rm client

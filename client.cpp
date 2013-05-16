@@ -105,7 +105,7 @@ int sendData(FILE* source){
 
 
 //return 0 if login success, else state Code
-int serverlogin(const char* username, const char* password){
+int serverlogin(){
 	ReplyCode command;
 	int sendLength;
 
@@ -113,7 +113,15 @@ int serverlogin(const char* username, const char* password){
 	if (command != StdReply::SERVER_READY){
 		badEnd("server send wrong hello message");
 	}
-	sendLength = sprintf(sendBuf, "USER %s\r\n", username);
+
+	char temp[100];
+	printf("ftp> username: ");
+	fgets(temp, 100, stdin);
+	int l = strlen(temp) - 1;
+	while (temp[l] == '\r' || temp[l] == '\n'){
+		temp[l--] = '\0';
+	}
+	sendLength = sprintf(sendBuf, "USER %s\r\n", temp);
 	if (_debug_mode){
 		printf("<<<%s", sendBuf);
 	}
@@ -122,7 +130,14 @@ int serverlogin(const char* username, const char* password){
 	if (command != StdReply::RIGHT_USERNAME){
 		badEnd("server reject username");
 	}
-	sendLength = sprintf(sendBuf, "PASS %s\r\n", password);
+	printf("ftp> password: ");
+	fgets(temp, 100, stdin);
+	system("clear");
+	l = strlen(temp) - 1;
+	while (temp[l] == '\r' || temp[l] == '\n'){
+		temp[l--] = '\0';
+	}
+	sendLength = sprintf(sendBuf, "PASS %s\r\n", temp);
 	if (_debug_mode){
 		printf("<<<PASS XXXX\n", sendBuf);
 	}
@@ -296,13 +311,13 @@ struct UserInput{
 };
 
 void ftpLoop(){
-	if (serverlogin("xxr3376", "ug920801")){
+	if (serverlogin()){
 		badEnd("login fail");
 		return;
 	}
 	char userInputBuf[1000];
 	while(true){
-		printf("\n(ftp)> ");
+		printf("\nftp> ");
 		gets(userInputBuf); 
 		UserInput ui(userInputBuf);
 		if (ui.op == "dir" || ui.op == "list" || ui.op == "ls"){
@@ -324,12 +339,29 @@ void ftpLoop(){
 			action_bye();
 			break;
 		}
+		else if (ui.op == "cls" || ui.op == "clear"){
+			system("clear");
+		}
 	}
 }
 
 int main ( int argc, char *argv[])
 {
-	initConnection("localhost", "2222");
+	if (argc < 2){
+		printf("usage: client domainName [port] [-d]");
+		exit(-1);
+	}
+	char port[100] = "21";
+	if (argc == 3){
+		strcpy(port, argv[2]);
+	}
+	if (argc == 4 && argv[3][0] == '-' && argv[3][1] == 'd'){
+		_debug_mode = 1;
+	}
+	if(initConnection(argv[1], port)){
+		printf("can not connect, EXIT");
+		exit(-1);
+	}
 	cq = new CommandQueue(_debug_mode, Scontrol);
 	ftpLoop();
 	closeConnection();
