@@ -1,3 +1,8 @@
+/* 
+ * ugFTP client 1.0
+ * Author: ugeeker<xxr3376@gmail.com>
+ * Date: 2013-5-16
+*/
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -12,6 +17,7 @@
 #include "commandqueue.h"
 #include <algorithm>
 #include <string>
+#include "util.h"
 
 using namespace std;
 
@@ -22,6 +28,7 @@ int Scontrol;
 int Sdata;
 
 int _debug_mode = 0;
+int dataMode = 0;	//0 mean passive, 1 mean 主动
 
 struct addrinfo *res0;
 struct addrinfo *res1;
@@ -52,20 +59,7 @@ int initConnection(const char* host, const char* port){
 		exit (1);
 	}
 	res = res0;
-	error = getnameinfo (res->ai_addr, res->ai_addrlen, hbuf,
-			sizeof (hbuf), sbuf, sizeof (sbuf),
-			NI_NUMERICHOST | NI_NUMERICSERV);
-	if (error)
-	{
-		fprintf (stderr, "%s %s: %s\n", host, port,
-				gai_strerror (error));
-		return -1;
-	}
-	if (_debug_mode){
-		fprintf (stderr, "trying %s port %s\n", hbuf, sbuf);
-	}
-	Scontrol = socket (res->ai_family, res->ai_socktype,
-			res->ai_protocol);
+	Scontrol = socket (res->ai_family, res->ai_socktype, res->ai_protocol);
 	if (Scontrol < 0)
 		return -1;
 	if (connect (Scontrol, res->ai_addr, res->ai_addrlen) < 0)
@@ -84,26 +78,6 @@ void closeConnection(){
 	freeaddrinfo (res1);
 }
 
-
-int recvData(FILE* target){
-	int l = 0;
-	while ((l = read (Sdata, dataRecvBuf, DATA_BUF_SIZE)) > 0){
-		fwrite(dataRecvBuf, 1, l, target);
-		if (_debug_mode){
-			fwrite(dataRecvBuf, 1, l, stdout);
-		}
-	}
-	return 0;
-}
-int sendData(FILE* source){
-	int l = 0;
-	while ((l = fread(dataSendBuf, 1, DATA_BUF_SIZE, source)) > 0){
-		write(Sdata, dataSendBuf, l);
-	}
-	return 0;
-}
-
-
 //return 0 if login success, else state Code
 int serverlogin(){
 	ReplyCode command;
@@ -114,6 +88,7 @@ int serverlogin(){
 		badEnd("server send wrong hello message");
 	}
 
+	printf("welcome to ugFTP client v1.0\n");
 	char temp[100];
 	printf("ftp> username: ");
 	fgets(temp, 100, stdin);
@@ -150,8 +125,7 @@ int serverlogin(){
 	// failed
 	return (int) command;
 }
-//PASSIVE
-int openDataPort(){
+int connectPASSIVE(){
 	ReplyCode command;
 	int sendLength;
 	sendLength = sprintf(sendBuf, "PASV\r\n");
@@ -169,7 +143,6 @@ int openDataPort(){
 
 	struct addrinfo hints, *res;
 	ssize_t l;
-	char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
 	int error;
 /* check the number of arguments */
 	memset (&hints, 0, sizeof (hints));
@@ -182,18 +155,6 @@ int openDataPort(){
 		exit (1);
 	}
 	res = res1;
-	error = getnameinfo (res->ai_addr, res->ai_addrlen, hbuf,
-			sizeof (hbuf), sbuf, sizeof (sbuf),
-			NI_NUMERICHOST | NI_NUMERICSERV);
-	if (error)
-	{
-		fprintf (stderr, "%s %s: %s\n", host, port,
-				gai_strerror (error));
-		return -1;
-	}
-	if (_debug_mode){
-		fprintf (stderr, "trying %s port %s\n", hbuf, sbuf);
-	}
 	Sdata = socket (res->ai_family, res->ai_socktype,
 			res->ai_protocol);
 	fflush(stdout);
@@ -207,6 +168,49 @@ int openDataPort(){
 	}
 	return 0;
 }
+// PORT
+int connectPORT(){
+	int &datafd = Sdata;
+	datafd = socket(AF_INET,SOCK_STREAM,0);
+	struct sockaddr_in dataaddr, daddr, caddr;
+	dataaddr.sin_family = AF_INET;
+	dataaddr.sin_addr.s_addr = INADDR_ANY;
+	dataaddr.sin_port = 0;
+	if  (bind(datafd, (struct sockaddr *)&dataaddr, sizeof(dataaddr))<0) {
+		printf("bind error!");
+		return -1;
+	}
+	if (listen(datafd, 1) < 0) {
+		printf("listen error!");
+		return -1;
+	}
+	socklen_t length  =   sizeof (daddr);
+	if (getsockname(datafd,(struct sockaddr*)&daddr, &length) <0) {
+		printf("getsockname error!");
+		return -1;
+	}
+	getsockname(Scontrol, (struct sockaddr*)&caddr, &length);
+	listen(datafd, 4);
+	int addr = caddr.sin_addr.s_addr;
+	int port = ntohs(daddr.sin_port);
+	int sendLength = sprintf(sendBuf, "PORT %d,%d,%d,%d,%d,%d\r\n", (addr&0xFF), ((addr&0xFF00)>>8), ((addr&0xFF0000)>>16), ((addr&0xFF000000)>>24), (port>>8), (port&0xFF));
+	write(Scontrol, sendBuf, sendLength);
+	if (cq->getNewCommand() != 200){
+		return -1;
+	}
+	return 0;
+}
+//PASSIVE
+int openDataPort(){
+	if (dataMode == 0){
+		//PASV
+		return connectPASSIVE();
+	}
+	else {
+		//PORT
+		return connectPORT();
+	}
+}
 int action_list(){
 	if (openDataPort()){
 		badEnd("data port fail");
@@ -214,11 +218,19 @@ int action_list(){
 	}
 	int sendLength = sprintf(sendBuf, "LIST\r\n");
 	write(Scontrol, sendBuf, sendLength);
+	if (dataMode){
+		int data_client_fd = -1;
+		struct sockaddr_in data_client_addr;
+		int size=sizeof(struct sockaddr_in);
+		data_client_fd = accept(Sdata, (struct sockaddr *) & data_client_addr, (socklen_t*) &size);
+		close(Sdata);
+		Sdata = data_client_fd;
+	}	
 	ReplyCode command = cq->getNewCommand();
 	if ( !( command == StdReply::TRANSFERING || command == StdReply::OPENING_DATAPORT)){
 		return -1;
 	}
-	recvData(stdout);
+	recvFile(stdout, Sdata);
 	// transfer OK FLAG
 	command = cq->getNewCommand();
 }
@@ -244,19 +256,27 @@ void action_bye(){
 	printf("%s\n", com.original.c_str());
 }
 int action_download(const char* filename){
-	if (openDataPort()){
-		badEnd("data port fail");
-		return 0;
-	}
-	int sendLength = sprintf(sendBuf, "RETR %s\r\n", filename);
 	FILE* files = fopen(filename, "wb");
 	if (!files){
 		printf("can not open local file\n");
 		return -1;
 	}
+	if (openDataPort()){
+		badEnd("data port fail");
+		return 0;
+	}
+	int sendLength = sprintf(sendBuf, "RETR %s\r\n", filename);
 	write(Scontrol, sendBuf, sendLength);
+	if (dataMode){
+		int data_client_fd = -1;
+		struct sockaddr_in data_client_addr;
+		int size=sizeof(struct sockaddr_in);
+		data_client_fd = accept(Sdata, (struct sockaddr *) & data_client_addr, (socklen_t*) &size);
+		close(Sdata);
+		Sdata = data_client_fd;
+	}	
 	ReplyCode command = cq->getNewCommand();
-	recvData(files);
+	recvFile(files, Sdata);
 	fclose(files);
 	// transfer OK FLAG
 	command = cq->getNewCommand();
@@ -280,8 +300,16 @@ int action_upload(const char* filename){
 	}
 	sendLength = sprintf(sendBuf, "STOR %s\r\n", filename);
 	write(Scontrol, sendBuf, sendLength);
+	if (dataMode){
+		int data_client_fd = -1;
+		struct sockaddr_in data_client_addr;
+		int size=sizeof(struct sockaddr_in);
+		data_client_fd = accept(Sdata, (struct sockaddr *) & data_client_addr, (socklen_t*) &size);
+		close(Sdata);
+		Sdata = data_client_fd;
+	}	
 	command = cq->getNewCommand();
-	sendData(files);
+	sendFile(files, Sdata);
 	close (Sdata);
 	fclose(files);
 	// transfer OK FLAG
@@ -342,6 +370,31 @@ void ftpLoop(){
 		else if (ui.op == "cls" || ui.op == "clear"){
 			system("clear");
 		}
+		else if (ui.op == "debug"){
+			_debug_mode = 1 - _debug_mode;
+			cq->setDebugMode(_debug_mode);
+			printf("debug mode = %d\n", _debug_mode);
+		}
+		else if (ui.op == "passive"){
+			dataMode = 0;
+			printf("passive mode is on");
+		}
+		else if (ui.op == "port"){
+			dataMode = 1;
+			printf("initiative mode is on");
+		}
+		else if (ui.op == "help"){
+			printf("\ndir | list | ls: \tList files on server\n");
+			printf("pwd: \t\t\tShow current path\n");
+			printf("cd: \t\t\tChange current path\n");
+			printf("put: \t\t\tUpload file\n");
+			printf("get: \t\t\tdownload file\n");
+			printf("bye | quit : \t\tQuit ftp\n");
+			printf("cls | clear : \t\tClear Screen\n");
+			printf("debug: \t\t\tSwitch Debug Mode\n");
+			printf("passive: \t\tSet to use passive mode\n");
+			printf("port: \t\t\tSet to use initiative mode\n");
+		}
 	}
 }
 
@@ -359,7 +412,7 @@ int main ( int argc, char *argv[])
 		_debug_mode = 1;
 	}
 	if(initConnection(argv[1], port)){
-		printf("can not connect, EXIT");
+		printf("can not connect, EXIT\n");
 		exit(-1);
 	}
 	cq = new CommandQueue(_debug_mode, Scontrol);

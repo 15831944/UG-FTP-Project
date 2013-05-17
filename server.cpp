@@ -1,5 +1,7 @@
 /* 
- * 
+ * ugFTP server 1.0
+ * Author: ugeeker<xxr3376@gmail.com>
+ * Date: 2013-5-17
 */
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -28,6 +30,7 @@ int  _debug_mode = 0;
 
 string baseAddr;
 void replyClient(int socket);
+static char welcomeMsg[] = "(ugFTPd 1.0)";
 
 int main( int argc, char **argv) {
 	if (argc < 4){
@@ -176,7 +179,6 @@ int main( int argc, char **argv) {
 	for (i = 0; i < smax; i++)
 		close (ls[i]);
 }
-static char welcomeMsg[] = "(ugFTPd 1.0)";
 struct Client{
 	LoginStatus loginStatus;
 	string username;
@@ -265,16 +267,6 @@ int connectPORT(Client* client, string data){
 		fprintf (stderr, "%s %s: %s\n", host, port, gai_strerror (error));
 		exit (1);
 	}
-	/*
-	datafd = socket (res->ai_family, res->ai_socktype, res->ai_protocol);
-	if (datafd < 0)
-		return -1;
-	if (connect (datafd , res->ai_addr, res->ai_addrlen) < 0)
-	{
-		close (datafd);
-		return -1;
-	}
-	*/
 	int sendLength = sprintf(client->sendBuf, "200 PORT command successful. Consider using PASV.\r\n");
 	_send(client->ctrlSocket, client->sendBuf, sendLength);
 	client->dataStatus = 1;

@@ -33,6 +33,7 @@ public:
 	CommandQueue(int debug_mode, int s);
 	ReplyCode getNewCommand();
 	Command getNewOriginal();
+	void setDebugMode(int a);
 };
 #endif /* _COMMANDQUEUE_H_ */
 

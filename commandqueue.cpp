@@ -4,6 +4,9 @@
 #include <queue>
 using namespace std;
 
+void CommandQueue::setDebugMode(int a){
+	this->debug_mode = a;
+}
 void CommandQueue::_recvCommand(){
 	int bufOffset = 0;
 	int l = 0;
