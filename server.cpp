@@ -182,12 +182,15 @@ struct Client{
 	string username;
 	string cur_path;
 	int dataSocket;
+	int dataStatus;
 	int ctrlSocket;
 	RequestQueue* rq;
+	struct addrinfo hints, *res;
 	char* sendBuf;
 	Client(int cs, char* buf, RequestQueue* r){
 		ctrlSocket = cs;
 		loginStatus = LOGIN_INIT;
+		dataStatus = 0;
 		dataSocket = -1;
 		sendBuf = buf;
 		rq = r;
@@ -234,6 +237,7 @@ int connectPASV(Client* client){
 	int port = ntohs(daddr.sin_port);
 	int sendLength = sprintf(client->sendBuf, "227 Entering Passive Mode (%d,%d,%d,%d,%d,%d)\r\n", (addr&0xFF), ((addr&0xFF00)>>8), ((addr&0xFF0000)>>16), ((addr&0xFF000000)>>24), (port>>8), (port&0xFF));
 	_send(client->ctrlSocket, client->sendBuf, sendLength);
+	client->dataStatus = 1;
 	return 0;
 }
 
@@ -241,6 +245,7 @@ int connectPORT(Client* client, string data){
 	int &datafd = client->dataSocket;
 	if (datafd != -1) {
 		close(datafd);
+		datafd = -1;
 	}
 	char host[100];
 	char port[100];
@@ -248,9 +253,10 @@ int connectPORT(Client* client, string data){
 	sscanf(data.c_str(), "%d,%d,%d,%d,%d,%d", &h1, &h2, &h3, &h4, &p1, &p2);
 	sprintf(host, "%d.%d.%d.%d", h1, h2, h3, h4);
 	sprintf(port, "%d", p1 * 256 + p2);
-	struct addrinfo hints, *res;
 	ssize_t l;
 	int error;
+	struct addrinfo& hints = client->hints;
+	struct addrinfo *& res = client->res;
 /* check the number of arguments */
 	memset (&hints, 0, sizeof (hints));
 	hints.ai_socktype = SOCK_STREAM;
@@ -259,9 +265,8 @@ int connectPORT(Client* client, string data){
 		fprintf (stderr, "%s %s: %s\n", host, port, gai_strerror (error));
 		exit (1);
 	}
-
-	datafd = socket (res->ai_family, res->ai_socktype,
-			res->ai_protocol);
+	/*
+	datafd = socket (res->ai_family, res->ai_socktype, res->ai_protocol);
 	if (datafd < 0)
 		return -1;
 	if (connect (datafd , res->ai_addr, res->ai_addrlen) < 0)
@@ -269,21 +274,39 @@ int connectPORT(Client* client, string data){
 		close (datafd);
 		return -1;
 	}
-	int sendLength = sprintf(client->sendBuf, "200 PORT command successful. Consider using PASV.");
+	*/
+	int sendLength = sprintf(client->sendBuf, "200 PORT command successful. Consider using PASV.\r\n");
 	_send(client->ctrlSocket, client->sendBuf, sendLength);
+	client->dataStatus = 1;
 	return 0;
 }
 
 int openDataPort(Client* client){
-	if (!(client->dataSocket > 0)){
+	if (!(client->dataSocket)){
 		return -1;
 	}
-	int data_client_fd = -1;
-	struct sockaddr_in data_client_addr;
-	int size=sizeof(struct sockaddr_in);
-	data_client_fd = accept(client->dataSocket, (struct sockaddr *) & data_client_addr, (socklen_t*) &size);
-	close(client->dataSocket);
-	client->dataSocket = data_client_fd;
+	if (!(client->dataSocket > 0)){
+		struct addrinfo& hints = client->hints;
+		struct addrinfo *& res = client->res;
+		int &datafd = client->dataSocket;
+		datafd = socket (res->ai_family, res->ai_socktype, res->ai_protocol);
+		if (datafd < 0)
+			return -1;
+		if (connect (datafd , res->ai_addr, res->ai_addrlen) < 0)
+		{
+			close (datafd);
+			return -1;
+		}
+		return 0;
+	}
+	else{
+		int data_client_fd = -1;
+		struct sockaddr_in data_client_addr;
+		int size=sizeof(struct sockaddr_in);
+		data_client_fd = accept(client->dataSocket, (struct sockaddr *) & data_client_addr, (socklen_t*) &size);
+		close(client->dataSocket);
+		client->dataSocket = data_client_fd;
+	}
 	return 0;
 }	
 
@@ -303,7 +326,7 @@ void replyClient(int socket){
 		if (req.req == "QUIT"){
 			sendLength = sprintf(sendBuf, "221 Goodbye.\r\n");
 			_send(socket, sendBuf, sendLength);
-			printf("user: %s log out", client.username.c_str());
+			printf("[LOG]user: %s log out\n", client.username.c_str());
 			break;
 		}
 		else if (req.req == "USER"){
@@ -330,7 +353,7 @@ void replyClient(int socket){
 						client.loginStatus = LOGIN_LOGINED;
 						sendLength = sprintf(sendBuf, "%d Login successful.\r\n", StdReply::LOGIN_SUCCESS);
 						_send(socket, sendBuf, sendLength);
-						printf("user: %s log in", client.username.c_str());
+						printf("[LOG]user: %s log in\n", client.username.c_str());
 						continue;
 					}
 				}
@@ -359,7 +382,7 @@ void replyClient(int socket){
 			}
 			// already logged in
 			if (req.req == "LIST"){
-				if (client.dataSocket <= 0){
+				if (!client.dataStatus){
 					// 425 Use PORT or PASV first.
 					sendLength = sprintf(sendBuf, "425 Use PORT or PASV first.\r\n");
 					_send(socket, sendBuf, sendLength);
@@ -373,6 +396,7 @@ void replyClient(int socket){
 					sendFile( lsdata, client.dataSocket);
 					close(client.dataSocket);
 					client.dataSocket = -1;
+					client.dataStatus = 0;
 
 					sendLength = sprintf(sendBuf, "226 Directory send OK.\r\n");
 					_send(socket, sendBuf, sendLength);
@@ -405,7 +429,7 @@ void replyClient(int socket){
 				continue;
 			}
 			else if (req.req == "STOR"){
-				if (client.dataSocket <= 0){
+				if (!client.dataStatus){
 					// 425 Use PORT or PASV first.
 					sendLength = sprintf(sendBuf, "425 Use PORT or PASV first.\r\n");
 					_send(socket, sendBuf, sendLength);
@@ -426,6 +450,7 @@ void replyClient(int socket){
 					recvFile( fdata, client.dataSocket);
 					close(client.dataSocket);
 					client.dataSocket = -1;
+					client.dataStatus = 0;
 
 					sendLength = sprintf(sendBuf, "226 Transfer complete.\r\n");
 					_send(socket, sendBuf, sendLength);
@@ -434,7 +459,7 @@ void replyClient(int socket){
 				continue;
 			}
 			else if (req.req == "RETR"){
-				if (client.dataSocket <= 0){
+				if (!client.dataStatus){
 					// 425 Use PORT or PASV first.
 					sendLength = sprintf(sendBuf, "425 Use PORT or PASV first.\r\n");
 					_send(socket, sendBuf, sendLength);
@@ -455,6 +480,7 @@ void replyClient(int socket){
 					sendFile( fdata, client.dataSocket);
 					close(client.dataSocket);
 					client.dataSocket = -1;
+					client.dataStatus = 0;
 
 					sendLength = sprintf(sendBuf, "226 Transfer complete.\r\n");
 					_send(socket, sendBuf, sendLength);
