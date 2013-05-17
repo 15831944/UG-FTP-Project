@@ -383,7 +383,7 @@ void ftpLoop(){
 			dataMode = 1;
 			printf("initiative mode is on");
 		}
-		else if (ui.op == "help"){
+		else if (ui.op == "help" || ui.op == "?"){
 			printf("\ndir | list | ls: \tList files on server\n");
 			printf("pwd: \t\t\tShow current path\n");
 			printf("cd: \t\t\tChange current path\n");
@@ -394,6 +394,7 @@ void ftpLoop(){
 			printf("debug: \t\t\tSwitch Debug Mode\n");
 			printf("passive: \t\tSet to use passive mode\n");
 			printf("port: \t\t\tSet to use initiative mode\n");
+			printf("help | ?: \t\tShow Help\n");
 		}
 	}
 }

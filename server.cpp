@@ -49,8 +49,8 @@ int main( int argc, char **argv) {
 	char line[1000];
 	char username[100], password[100];
 	while ( fgets(line, 1000, accFile) != NULL){
-		accounts[string("xxr3376")] = string("ug920801");
-		sscanf("%s %s\n", username, password);
+		//accounts[string("xxr3376")] = string("ug920801");
+		sscanf(line, "%s %s\n", username, password);
 		accounts[string(username)] = string(password);
 	}
 	struct addrinfo hints, *res, *res0;
