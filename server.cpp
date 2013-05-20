@@ -29,6 +29,7 @@ int  _debug_mode = 0;
 #define SERVER_VERSION 1
 
 string baseAddr;
+
 void replyClient(int socket);
 static char welcomeMsg[] = "(ugFTPd 1.0)";
 
